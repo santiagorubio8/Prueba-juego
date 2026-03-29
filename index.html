@@ -16,7 +16,6 @@
       align-items: center;
       min-height: 100dvh;
       overflow: hidden;
-      touch-action: none;
       user-select: none;
     }
 
@@ -116,10 +115,11 @@
       width: 100%;
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
+      -webkit-appearance: none;
     }
 
     button:active { background: #c73652; transform: scale(0.97); }
-    button:disabled { background: #444; cursor: not-allowed; }
+    button:disabled { background: #444; cursor: not-allowed; pointer-events: none; }
 
     /* Overlay */
     #overlay {
@@ -191,9 +191,10 @@
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
       transition: background 0.1s, transform 0.1s;
+      -webkit-user-select: none;
     }
 
-    .ctrl-btn:active {
+    .ctrl-btn.pressed {
       background: #e94560;
       border-color: #e94560;
       transform: scale(0.93);
@@ -521,54 +522,65 @@
     else clearTimeout(gameLoop);
   }
 
-  // ── Touch buttons ──────────────────────────────────────────────────────────
-  function addTouchBtn(id, fn) {
+  // ── Touch / Pointer buttons ────────────────────────────────────────────────
+  function addCtrlBtn(id, fn, repeat = false) {
     const el = document.getElementById(id);
-    let interval;
-    const isRepeat = (id === 'btn-left' || id === 'btn-right' || id === 'btn-down');
+    let interval = null;
 
-    el.addEventListener('touchstart', e => {
-      e.preventDefault();
+    function press() {
+      el.classList.add('pressed');
       fn();
-      if (isRepeat) interval = setInterval(fn, 120);
-    }, {passive: false});
+      if (repeat) interval = setInterval(fn, 110);
+    }
 
-    el.addEventListener('touchend', e => {
-      e.preventDefault();
+    function release() {
+      el.classList.remove('pressed');
       clearInterval(interval);
-    }, {passive: false});
+      interval = null;
+    }
 
-    el.addEventListener('mousedown', e => { fn(); if (isRepeat) interval = setInterval(fn, 120); });
-    el.addEventListener('mouseup',   () => clearInterval(interval));
-    el.addEventListener('mouseleave',() => clearInterval(interval));
+    el.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      press();
+    });
+
+    el.addEventListener('pointerup',     e => { e.preventDefault(); release(); });
+    el.addEventListener('pointercancel', e => { e.preventDefault(); release(); });
+    el.addEventListener('pointerleave',  e => { if (interval) release(); });
   }
 
-  addTouchBtn('btn-left',   () => { if (!paused && !gameOver && valid(currentPiece, -1, 0)) { currentPiece.x--; drawBoard(); }});
-  addTouchBtn('btn-right',  () => { if (!paused && !gameOver && valid(currentPiece,  1, 0)) { currentPiece.x++; drawBoard(); }});
-  addTouchBtn('btn-down',   () => { if (!paused && !gameOver) { drop(); score++; scoreEl.textContent = score; }});
-  addTouchBtn('btn-rotate', tryRotate);
-  addTouchBtn('btn-drop',   hardDrop);
+  addCtrlBtn('btn-left',   () => { if (!paused && !gameOver && currentPiece && valid(currentPiece, -1, 0)) { currentPiece.x--; drawBoard(); }}, true);
+  addCtrlBtn('btn-right',  () => { if (!paused && !gameOver && currentPiece && valid(currentPiece,  1, 0)) { currentPiece.x++; drawBoard(); }}, true);
+  addCtrlBtn('btn-down',   () => { if (!paused && !gameOver && currentPiece) { drop(); score++; scoreEl.textContent = score; }}, true);
+  addCtrlBtn('btn-rotate', tryRotate);
+  addCtrlBtn('btn-drop',   hardDrop);
 
-  // ── Swipe gestures on the board ────────────────────────────────────────────
-  let touchStartX, touchStartY;
+  // ── Swipe gestures on the board (pointer events) ──────────────────────────
+  boardCanvas.style.touchAction = 'none';
+  let swipeStartX, swipeStartY;
 
-  boardCanvas.addEventListener('touchstart', e => {
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-  }, {passive: true});
+  boardCanvas.addEventListener('pointerdown', e => {
+    swipeStartX = e.clientX;
+    swipeStartY = e.clientY;
+    boardCanvas.setPointerCapture(e.pointerId);
+  });
 
-  boardCanvas.addEventListener('touchend', e => {
-    const dx = e.changedTouches[0].clientX - touchStartX;
-    const dy = e.changedTouches[0].clientY - touchStartY;
+  boardCanvas.addEventListener('pointerup', e => {
+    if (swipeStartX === undefined) return;
+    const dx = e.clientX - swipeStartX;
+    const dy = e.clientY - swipeStartY;
     const absDx = Math.abs(dx), absDy = Math.abs(dy);
-    if (absDx < 10 && absDy < 10) { tryRotate(); return; }
+    swipeStartX = swipeStartY = undefined;
+    if (!currentPiece || gameOver || paused) return;
+    if (absDx < 12 && absDy < 12) { tryRotate(); return; }
     if (absDx > absDy) {
       if (dx < 0 && valid(currentPiece, -1, 0)) { currentPiece.x--; drawBoard(); }
       else if (dx > 0 && valid(currentPiece, 1, 0)) { currentPiece.x++; drawBoard(); }
-    } else {
-      if (dy > 0) hardDrop();
+    } else if (dy > 0) {
+      hardDrop();
     }
-  }, {passive: true});
+  });
 
   // ── Keyboard ───────────────────────────────────────────────────────────────
   document.addEventListener('keydown', e => {
